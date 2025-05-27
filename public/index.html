@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Monitoring Ketinggian Air - Desa 1 & Desa 2</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .info-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .info-card h4 {
+            margin: 0 0 10px 0;
+            color: #666;
+            font-size: 14px;
+        }
+        .info-card .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        .desa1-data { border-left: 4px solid #4285F4; }
+        .desa2-data { border-left: 4px solid #EA4335; }
+        .connection-status { border-left: 4px solid #34A853; }
+        
+        .villages-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .village-section {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        
+        .village-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #eee;
+        }
+        
+        .village-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .village-status {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        
+        .status-safe {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        
+        .status-danger {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        
+        .chart-container {
+            height: 300px;
+            margin-bottom: 20px;
+        }
+        
+        .data-table-container {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #555;
+            position: sticky;
+            top: 0;
+        }
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+        .danger-row {
+            background-color: #ffebee !important;
+            color: #c62828;
+        }
+        
+        .combined-chart {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .combined-chart h3 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        
+        @media (max-width: 1024px) {
+            .villages-container {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .status-overview {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🌊 Sistem Early Warning Banjir</h1>
+        <p>Monitoring Real-time Ketinggian Air Desa 1 & Desa 2</p>
+    </div>
+    
+    <div class="status-overview">
+        <div class="info-card desa1-data">
+            <h4>Desa 1 - Ketinggian Air</h4>
+            <div class="value" id="desa1Value">-- cm</div>
+        </div>
+        <div class="info-card desa2-data">
+            <h4>Desa 2 - Ketinggian Air</h4>
+            <div class="value" id="desa2Value">-- cm</div>
+        </div>
+        <div class="info-card connection-status">
+            <h4>Status Koneksi</h4>
+            <div class="value" id="connectionStatus">🔄</div>
+        </div>
+        <div class="info-card">
+            <h4>Status MQTT</h4>
+            <div class="value" id="mqttStatus">🔄</div>
+        </div>
+    </div>
+
+    <!-- Combined Chart -->
+    <div class="combined-chart">
+        <h3>📊 Grafik Gabungan - Perbandingan Ketinggian Air</h3>
+        <div class="chart-container">
+            <canvas id="combinedChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Village Sections -->
+    <div class="villages-container">
+        <!-- Desa 1 -->
+        <div class="village-section">
+            <div class="village-header">
+                <div class="village-title">🏘️ Desa 1</div>
+                <div class="village-status" id="desa1Status">Memantau...</div>
+            </div>
+            
+            <div class="chart-container">
+                <canvas id="desa1Chart"></canvas>
+            </div>
+            
+            <div class="data-table-container">
+                <h4>📋 Data Terbaru</h4>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Waktu</th>
+                            <th>Ketinggian (cm)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="desa1Table">
+                        <tr><td colspan="2">Menunggu data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Desa 2 -->
+        <div class="village-section">
+            <div class="village-header">
+                <div class="village-title">🏘️ Desa 2</div>
+                <div class="village-status" id="desa2Status">Memantau...</div>
+            </div>
+            
+            <div class="chart-container">
+                <canvas id="desa2Chart"></canvas>
+            </div>
+            
+            <div class="data-table-container">
+                <h4>📋 Data Terbaru</h4>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Waktu</th>
+                            <th>Ketinggian (cm)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="desa2Table">
+                        <tr><td colspan="2">Menunggu data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const maxDataPoints = 30;
+        const maxTableRows = 10;
+        const threshold = 100;
+        let isDemo = true;
+        let demoCounter = 0;
+
+        // Data storage
+        let desa1Data = [];
+        let desa2Data = [];
+        let chartLabels = [];
+
+        // Chart configurations
+        const chartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Ketinggian (cm)'
+                    },
+                    grid: {
+                        color: 'rgba(0,0,0,0.1)'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Waktu'
+                    },
+                    grid: {
+                        color: 'rgba(0,0,0,0.1)'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (context) => `${context.dataset.label}: ${context.parsed.y} cm`
+                    }
+                }
+            },
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            }
+        };
+
+        // Initialize Charts
+        const combinedCtx = document.getElementById('combinedChart').getContext('2d');
+        const combinedChart = new Chart(combinedCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Desa 1',
+                        data: [],
+                        borderColor: '#4285F4',
+                        backgroundColor: 'rgba(66, 133, 244, 0.1)',
+                        tension: 0.4,
+                        fill: false,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    },
+                    {
+                        label: 'Desa 2',
+                        data: [],
+                        borderColor: '#EA4335',
+                        backgroundColor: 'rgba(234, 67, 53, 0.1)',
+                        tension: 0.4,
+                        fill: false,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }
+                ]
+            },
+            options: chartOptions
+        });
+
+        const desa1Ctx = document.getElementById('desa1Chart').getContext('2d');
+        const desa1Chart = new Chart(desa1Ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Ketinggian Air Desa 1',
+                    data: [],
+                    borderColor: '#4285F4',
+                    backgroundColor: 'rgba(66, 133, 244, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 3,
+                    pointHoverRadius: 5
+                }]
+            },
+            options: chartOptions
+        });
+
+        const desa2Ctx = document.getElementById('desa2Chart').getContext('2d');
+        const desa2Chart = new Chart(desa2Ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Ketinggian Air Desa 2',
+                    data: [],
+                    borderColor: '#EA4335',
+                    backgroundColor: 'rgba(234, 67, 53, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 3,
+                    pointHoverRadius: 5
+                }]
+            },
+            options: chartOptions
+        });
+
+        // Demo data generation
+        function getSimulatedData(offset = 0) {
+            demoCounter++;
+            const baseLevel = 80 + offset;
+            const variation = Math.sin((demoCounter + offset) * 0.1) * 20 + Math.random() * 10;
+            return Math.max(0, baseLevel + variation);
+        }
+
+        // Update data function
+        async function updateData() {
+            try {
+                let desa1Distance, desa2Distance, mqttConnected = false;
+                
+                if (isDemo) {
+                    desa1Distance = getSimulatedData(0);
+                    desa2Distance = getSimulatedData(10);
+                    mqttConnected = true;
+                } else {
+                    const response = await fetch('http://localhost:3000/data');
+                    if (!response.ok) throw new Error("Gagal mengambil data");
+                    const data = await response.json();
+                    
+                    desa1Distance = parseFloat(data.desa1.distance) || 0;
+                    desa2Distance = parseFloat(data.desa2.distance) || 0;
+                    mqttConnected = data.mqttConnected;
+                }
+
+                const now = new Date();
+                const timeString = now.toLocaleTimeString();
+                
+                // Store data
+                desa1Data.push({
+                    time: timeString,
+                    value: desa1Distance,
+                    timestamp: now
+                });
+                
+                desa2Data.push({
+                    time: timeString,
+                    value: desa2Distance,
+                    timestamp: now
+                });
+                
+                chartLabels.push(timeString);
+                
+                // Limit data points
+                if (desa1Data.length > maxDataPoints) {
+                    desa1Data.shift();
+                    desa2Data.shift();
+                    chartLabels.shift();
+                }
+                
+                // Update all components
+                updateCharts();
+                updateTables();
+                updateInfoCards(desa1Distance, desa2Distance, mqttConnected);
+                updateVillageStatus(desa1Distance, desa2Distance);
+                
+                // Update connection status
+                document.getElementById('connectionStatus').textContent = '✅';
+                document.getElementById('mqttStatus').textContent = mqttConnected ? '✅' : '❌';
+                
+                console.log(`📊 Data updated - Desa1: ${desa1Distance.toFixed(1)}cm, Desa2: ${desa2Distance.toFixed(1)}cm`);
+                
+            } catch (error) {
+                console.error('Error updating data:', error);
+                document.getElementById('connectionStatus').textContent = '❌';
+                document.getElementById('mqttStatus').textContent = '❌';
+            }
+        }
+
+        // Update charts
+        function updateCharts() {
+            const desa1Values = desa1Data.map(d => d.value);
+            const desa2Values = desa2Data.map(d => d.value);
+            
+            // Combined chart
+            combinedChart.data.labels = chartLabels;
+            combinedChart.data.datasets[0].data = desa1Values;
+            combinedChart.data.datasets[1].data = desa2Values;
+            combinedChart.update('none');
+            
+            // Individual charts
+            desa1Chart.data.labels = chartLabels;
+            desa1Chart.data.datasets[0].data = desa1Values;
+            desa1Chart.update('none');
+            
+            desa2Chart.data.labels = chartLabels;
+            desa2Chart.data.datasets[0].data = desa2Values;
+            desa2Chart.update('none');
+        }
+
+        // Update tables
+        function updateTables() {
+            updateTable('desa1Table', desa1Data);
+            updateTable('desa2Table', desa2Data);
+        }
+
+        function updateTable(tableId, data) {
+            const tbody = document.getElementById(tableId);
+            const recentData = data.slice(-maxTableRows).reverse();
+            
+            tbody.innerHTML = '';
+            
+            if (recentData.length === 0) {
+                const row = tbody.insertRow();
+                const cell = row.insertCell(0);
+                cell.colSpan = 2;
+                cell.textContent = 'Menunggu data...';
+                return;
+            }
+            
+            recentData.forEach(point => {
+                const row = tbody.insertRow();
+                const cellTime = row.insertCell(0);
+                const cellValue = row.insertCell(1);
+                
+                cellTime.textContent = point.time;
+                cellValue.textContent = `${point.value.toFixed(1)} cm`;
+                
+                if (point.value > threshold) {
+                    row.className = 'danger-row';
+                }
+            });
+        }
+
+        // Update info cards
+        function updateInfoCards(desa1Value, desa2Value, mqttConnected) {
+            document.getElementById('desa1Value').textContent = `${desa1Value.toFixed(1)} cm`;
+            document.getElementById('desa2Value').textContent = `${desa2Value.toFixed(1)} cm`;
+        }
+
+        // Update village status
+        function updateVillageStatus(desa1Value, desa2Value) {
+            updateSingleVillageStatus('desa1Status', desa1Value);
+            updateSingleVillageStatus('desa2Status', desa2Value);
+        }
+
+        function updateSingleVillageStatus(elementId, value) {
+            const statusElement = document.getElementById(elementId);
+            
+            if (value > threshold) {
+                statusElement.textContent = `🚨 BAHAYA ${value.toFixed(1)} cm`;
+                statusElement.className = 'village-status status-danger';
+            } else {
+                statusElement.textContent = `✅ AMAN ${value.toFixed(1)} cm`;
+                statusElement.className = 'village-status status-safe';
+            }
+        }
+
+        // Check server connection
+        async function checkServerConnection() {
+            try {
+                const response = await fetch('http://localhost:3000/data');
+                if (response.ok) {
+                    isDemo = false;
+                    console.log('✅ Server connected - Using real data');
+                } else {
+                    throw new Error('Server not responding');
+                }
+            } catch (error) {
+                isDemo = true;
+                console.log('⚠️ Server not available - Using demo data');
+            }
+        }
+
+        // Initialize application
+        async function initialize() {
+            await checkServerConnection();
+            
+            console.log('🚀 Initializing dual village monitoring system...');
+            console.log('📊 Demo mode:', isDemo ? 'ON' : 'OFF');
+            
+            // Initial data update
+            await updateData();
+            
+            // Set up regular updates
+            const updateInterval = setInterval(updateData, 2000); // Update every 2 seconds
+            
+            console.log('⏰ Update interval started (2 seconds)');
+            
+            // Cleanup on page unload
+            window.addEventListener('beforeunload', () => {
+                clearInterval(updateInterval);
+            });
+        }
+
+        // Start the application
+        initialize();
+    </script>
+</body>
+</html>
