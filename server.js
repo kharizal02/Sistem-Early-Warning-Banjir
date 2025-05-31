@@ -5,9 +5,59 @@ const path = require('path');
 
 const app = express();
 
+
+//postgreSQL
+const pool = require('./database'); // koneksi PostgreSQL
+const bodyParser = require('body-parser'); // untuk parsing form login
+
 // Middleware
+app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
+
+
+//koneksi postgreSQL
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+app.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+
+    // ⬇️ Cek nilai input dari form login
+  console.log('📥 Email:', email, '| Password:', password);
+
+  try {
+    const result = await pool.query(
+  'SELECT * FROM users WHERE email = $1 AND password = $2',
+  [email, password]
+);
+
+    if (result.rows.length > 0) {
+        const user = result.rows[0];
+        console.log('🔐 Login berhasil:', user.username, '| Role:', user.role, '| Desa:', user.desa);
+
+        if (user.role === 'pemerintah') {
+          res.redirect('/index.html');
+          } else if (user.role === 'kepala_desa') {
+          res.redirect(`/kepala_${user.desa}.html`);
+          } else if (user.role === 'warga') {
+          res.redirect(`/warga_${user.desa}.html`);
+        } else {
+          console.warn('⚠️ Role tidak dikenali:', user.role);
+          res.send('<script>alert("Role tidak dikenali."); window.location.href="/login";</script>');
+        }
+        } else {
+            console.log('❌ Login gagal untuk:', email);
+            res.send('<script>alert("Login gagal!"); window.location.href="/login";</script>');
+        }
+
+  } catch (err) {
+    console.error('❌ Error saat login:', err);
+    res.status(500).send('Terjadi kesalahan saat login.');
+  }
+});
+
 
 // Variabel penyimpan data
 let latestData = {
@@ -287,6 +337,53 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// fetch desa1
+app.get('/desa1/data', (req, res) => {
+  const desa = latestData.desa1;
+  res.json({
+    sensorDistance: parseFloat(desa.distance),
+    waterLevel: convertSensorToWaterLevel(desa.distance),
+    rainStatus: desa.rainStatus,
+    sensorActive: true,
+    mqttConnected
+  });
+});
+
+
+// fetch desa2
+app.get('/desa2/data', (req, res) => {
+  const desa = latestData.desa2;
+  res.json({
+    sensorDistance: parseFloat(desa.distance),
+    waterLevel: convertSensorToWaterLevel(desa.distance),
+    rainStatus: desa.rainStatus,
+    sensorActive: true,
+    mqttConnected
+  });
+});
+
+//fetch rain-status
+app.get('/rain-status', (req, res) => {
+  res.json({
+    desa1: latestData.desa1.rainStatus,
+    desa2: latestData.desa2.rainStatus
+  });
+});
+
+//fetch chart-data 
+app.get('/chart-data', (req, res) => {
+  res.json({
+    desa1: {
+      waterLevel: convertSensorToWaterLevel(latestData.desa1.distance)
+    },
+    desa2: {
+      waterLevel: convertSensorToWaterLevel(latestData.desa2.distance)
+    }
+  });
+});
+
+
+
 // Error handling
 app.use((err, req, res, next) => {
   console.error('Server Error:', err);
@@ -296,6 +393,14 @@ app.use((err, req, res, next) => {
 // Jalankan server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
+    //Test koneksi ke PostgreSQL
+       pool.connect((err, client, release) => {
+      if (err) {
+        return console.error('❌ Gagal koneksi ke database:', err.stack);
+      }
+      console.log('✅ Berhasil koneksi ke PostgreSQL');
+      release(); // kembalikan client ke pool
+      });
   console.log(`🚀 Server berjalan di http://localhost:${PORT}`);
   console.log(`📡 Listening to topics:`);
   console.log(`   - mohamadkharizalfirdaus@gmail.com/desa1/hcsr04`);

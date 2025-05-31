@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Monitoring Banjir - Warga</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .info-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .info-card h4 {
+            margin: 0 0 10px 0;
+            color: #666;
+            font-size: 14px;
+        }
+        .info-card .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        .chart-container {
+            height: 400px;
+            margin-bottom: 30px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        
+        .rain-indicator {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        
+        .rain-heavy {
+            background-color: #4285F4;
+        }
+        .rain-moderate {
+            background-color: #5C6BC0;
+        }
+        .rain-light {
+            background-color: #42A5F5;
+        }
+        .rain-none {
+            background-color: #34A853;
+        }
+        .rain-unknown {
+            background-color: #9E9E9E;
+        }
+        
+        .desa1-status { border-left: 4px solid #4285F4; }
+        .desa2-status { border-left: 4px solid #EA4335; }
+        
+        @media (max-width: 768px) {
+            .status-overview {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🌊 Sistem Early Warning Banjir</h1>
+        <p>Informasi untuk Warga Desa</p>
+    </div>
+    
+    <div class="status-overview">
+        <div class="info-card desa1-status">
+            <h4>Desa 1 - Status Hujan</h4>
+            <div class="value" id="desa1RainStatus">--</div>
+        </div>
+        <div class="info-card desa2-status">
+            <h4>Desa 2 - Status Hujan</h4>
+            <div class="value" id="desa2RainStatus">--</div>
+        </div>
+        <div class="info-card">
+            <h4>Pembaruan Terakhir</h4>
+            <div class="value" id="lastUpdate">--:--</div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <h3 style="text-align: center; margin-bottom: 20px;">📊 Grafik Gabungan Ketinggian Air</h3>
+        <canvas id="combinedChart"></canvas>
+    </div>
+
+    <script>
+        // Configuration
+        const maxDataPoints = 60; // 10 minutes at 10-second intervals
+        const updateInterval = 10000; // 10 seconds for rain status
+        const chartUpdateInterval = 600000; // 10 minutes for chart updates
+
+        // Data storage
+        let combinedData = {
+            desa1: [],
+            desa2: []
+        };
+        let chartLabels = [];
+
+        // Chart configuration
+        const chartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    min: 0,
+                    max: 18,
+                    ticks: {
+                        stepSize: 2,
+                        callback: function(value) {
+                            return value + ' cm';
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Ketinggian Air (cm)'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Waktu'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (context) => `${context.dataset.label}: ${context.parsed.y.toFixed(1)} cm`
+                    }
+                }
+            }
+        };
+
+        // Initialize Combined Chart
+        const combinedCtx = document.getElementById('combinedChart').getContext('2d');
+        const combinedChart = new Chart(combinedCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Desa 1',
+                        data: [],
+                        borderColor: '#4285F4',
+                        backgroundColor: 'rgba(66, 133, 244, 0.1)',
+                        tension: 0.4,
+                        fill: true,
+                        pointRadius: 2
+                    },
+                    {
+                        label: 'Desa 2',
+                        data: [],
+                        borderColor: '#EA4335',
+                        backgroundColor: 'rgba(234, 67, 53, 0.1)',
+                        tension: 0.4,
+                        fill: true,
+                        pointRadius: 2
+                    }
+                ]
+            },
+            options: chartOptions
+        });
+
+        function formatRainStatus(status) {
+            const normalizedStatus = normalizeRainStatus(status);
+            
+            const statusMap = {
+                'heavy': { text: 'Hujan Lebat', class: 'rain-heavy', emoji: '🌧️' },
+                'moderate': { text: 'Hujan Sedang', class: 'rain-moderate', emoji: '🌧️' },
+                'light': { text: 'Gerimis', class: 'rain-light', emoji: '🌦️' },
+                'none': { text: 'Cerah', class: 'rain-none', emoji: '☀️' },
+                'unknown': { text: 'Tidak Diketahui', class: 'rain-unknown', emoji: '❓' }
+            };
+            
+            const statusInfo = statusMap[normalizedStatus] || statusMap['unknown'];
+            
+            return `<span class="rain-indicator ${statusInfo.class}"></span>${statusInfo.emoji} ${statusInfo.text}`;
+        }
+
+        function normalizeRainStatus(status) {
+            if (!status || status === 'undefined' || status === 'null') {
+                return 'unknown';
+            }
+            
+            const statusLower = status.toString().toLowerCase().trim();
+            
+            if (statusLower.includes('heavy') || statusLower.includes('lebat')) {
+                return 'heavy';
+            } else if (statusLower.includes('moderate') || statusLower.includes('sedang')) {
+                return 'moderate';
+            } else if (statusLower.includes('light') || statusLower.includes('gerimis')) {
+                return 'light';
+            } else if (statusLower.includes('no rain') || statusLower.includes('cerah') || statusLower.includes('none') || statusLower === 'clear') {
+                return 'none';
+            } else {
+                return 'unknown';
+            }
+        }
+
+        // Update rain status function (real-time)
+        async function updateRainStatus() {
+            try {
+                const response = await fetch('/rain-status');
+                if (!response.ok) throw new Error("Gagal mengambil data");
+                const data = await response.json();
+
+                document.getElementById('desa1RainStatus').innerHTML = formatRainStatus(data.desa1);
+                document.getElementById('desa2RainStatus').innerHTML = formatRainStatus(data.desa2);
+                
+                // Update last update time
+                const now = new Date();
+                document.getElementById('lastUpdate').textContent = now.toLocaleTimeString();
+                
+            } catch (error) {
+                console.error('Error updating rain status:', error);
+            }
+        }
+
+        // Update chart data function (every 10 minutes)
+        async function updateChartData() {
+            try {
+                const response = await fetch('/chart-data');
+                if (!response.ok) throw new Error("Gagal mengambil data");
+                const data = await response.json();
+
+                const now = new Date();
+                const timeString = now.toLocaleTimeString();
+                
+                // Add new data points
+                combinedData.desa1.push({
+                    time: timeString,
+                    value: data.desa1.waterLevel || 0
+                });
+                
+                combinedData.desa2.push({
+                    time: timeString,
+                    value: data.desa2.waterLevel || 0
+                });
+                
+                chartLabels.push(timeString);
+                
+                // Limit data points
+                if (combinedData.desa1.length > maxDataPoints) {
+                    combinedData.desa1.shift();
+                    combinedData.desa2.shift();
+                    chartLabels.shift();
+                }
+                
+                // Update chart
+                combinedChart.data.labels = chartLabels;
+                combinedChart.data.datasets[0].data = combinedData.desa1.map(d => d.value);
+                combinedChart.data.datasets[1].data = combinedData.desa2.map(d => d.value);
+                combinedChart.update();
+                
+                // Update last update time
+                document.getElementById('lastUpdate').textContent = now.toLocaleTimeString();
+                
+            } catch (error) {
+                console.error('Error updating chart data:', error);
+            }
+        }
+
+        // Initialize application
+        async function initialize() {
+            console.log('🚀 Initializing warga monitoring system...');
+            
+            // Initial updates
+            await updateRainStatus();
+            await updateChartData();
+            
+            // Set up regular updates
+            setInterval(updateRainStatus, updateInterval);
+            setInterval(updateChartData, chartUpdateInterval);
+            
+            console.log('⏰ Update intervals started');
+        }
+
+        // Start the application
+        initialize();
+
+        //koneksi WebSocket
+        const ws = new WebSocket('ws://' + window.location.hostname + ':3000');
+
+        ws.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'waterAlert' || data.type === 'rainAlert') {
+            alert(`👥 WARGA: ${data.message}`);
+          }
+        };
+    </script>
+</body>
+</html>
