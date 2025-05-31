@@ -305,6 +305,17 @@
 
         // Start the application
         initialize();
+
+        //koneksi WebSocket
+        const ws = new WebSocket('ws://' + window.location.hostname + ':3000');
+
+        ws.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'waterAlert' || data.type === 'rainAlert') {
+            alert(`👥 WARGA: ${data.message}`);
+          }
+        };
     </script>
 </body>
 </html>
