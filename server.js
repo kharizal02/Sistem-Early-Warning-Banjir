@@ -5,23 +5,6 @@ const path = require('path');
 
 const app = express();
 
-//WebSocket
-const http = require('http');
-const WebSocket = require('ws');
-
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
-
-let clients = [];
-
-function broadcastToClients(data) {
-  const payload = JSON.stringify(data);
-  clients.forEach(ws => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(payload); // kirim data ke semua client
-    }
-  });
-}
 
 //postgreSQL
 const pool = require('./database'); // koneksi PostgreSQL
@@ -31,6 +14,7 @@ const bodyParser = require('body-parser'); // untuk parsing form login
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
+
 
 //koneksi postgreSQL
 app.get('/login', (req, res) => {
@@ -81,7 +65,7 @@ let latestData = {
   desa2: { distance: "17", rainStatus: "unknown", lastUpdate: null }
 };
 
-// Status koneksi mqtt
+// Status koneksi
 let mqttConnected = false;
 
 // Konstanta untuk sensor ultrasonik
@@ -198,16 +182,7 @@ mqttClient.on('message', (topic, message) => {
       console.log(`   - Jarak sensor: ${sensorDistance} cm`);
       console.log(`   - Ketinggian air: ${waterLevel.toFixed(1)} cm`);
       console.log(`   - Status: ${waterStatus.message}`);
-
-      //notifikasi websocket
-      if (waterStatus.status === 'danger' || waterStatus.status === 'warning') {
-        broadcastToClients({
-        type: 'waterAlert',
-        desa: node,
-        level: waterStatus.status, // danger/warning
-        message: `⚠️ PERINGATAN: Ketinggian air di ${node.toUpperCase()} ${waterStatus.message}`
-        });
-      }
+      
     } else if (topic.includes('rain')) {
       // Update status hujan dengan mapping yang benar
       const rawRainStatus = message.toString().trim();
@@ -216,15 +191,6 @@ mqttClient.on('message', (topic, message) => {
       latestData[node].rainStatus = mappedRainStatus;
       
       console.log(`🌧️ [${timeString}] Status hujan ${node}: ${rawRainStatus} -> ${mappedRainStatus}`);
-
-      if (mappedRainStatus === 'heavy') {
-        broadcastToClients({
-        type: 'rainAlert',
-        desa: node,
-        level: 'heavy',
-        message: `🌧️ HUJAN LEBAT di ${node.toUpperCase()}`
-        });
-      }
     }
     
   } catch (error) {
@@ -366,17 +332,6 @@ app.get('/debug/rain', (req, res) => {
   });
 });
 
-//koneksi WebSocket
-wss.on('connection', (ws) => {
-  console.log('🔌 Client terhubung via WebSocket');
-  clients.push(ws);
-
-  ws.on('close', () => {
-    console.log('❌ Client WebSocket terputus');
-    clients = clients.filter(client => client !== ws);
-  });
-});
-
 // Serve static files (HTML)
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
@@ -437,7 +392,7 @@ app.use((err, req, res, next) => {
 
 // Jalankan server
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+app.listen(PORT, () => {
     //Test koneksi ke PostgreSQL
        pool.connect((err, client, release) => {
       if (err) {
@@ -446,7 +401,7 @@ server.listen(PORT, () => {
       console.log('✅ Berhasil koneksi ke PostgreSQL');
       release(); // kembalikan client ke pool
       });
-  console.log(`🚀 Server & webSocket berjalan di http://localhost:${PORT}`);
+  console.log(`🚀 Server berjalan di http://localhost:${PORT}`);
   console.log(`📡 Listening to topics:`);
   console.log(`   - mohamadkharizalfirdaus@gmail.com/desa1/hcsr04`);
   console.log(`   - mohamadkharizalfirdaus@gmail.com/desa1/rain`);
