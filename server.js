@@ -6,8 +6,38 @@ const nodemailer = require('nodemailer');
 
 const app = express();
 
-// PostgreSQL
-const pool = require('./database');
+// HARDCODED USER CREDENTIALS (menggantikan database)
+const users = [
+  {
+    email: 'pemerintah@gmail.com',
+    password: 'admin123',
+    username: 'Admin Pemerintah',
+    role: 'pemerintah',
+    desa: null
+  },
+  {
+    email: 'kepaladesa1@gmail.com',
+    password: 'desa1',
+    username: 'Kepala Desa 1',
+    role: 'kepala_desa',
+    desa: 'desa1'
+  },
+  {
+    email: 'kepaladesa2@gmail.com',
+    password: 'desa2',
+    username: 'Kepala Desa 2',
+    role: 'kepala_desa',
+    desa: 'desa2'
+  },
+  {
+    email: 'warga@gmail.com',
+    password: 'warga123',
+    username: 'Warga Desa',
+    role: 'warga',
+    desa: null
+  }
+];
+
 const bodyParser = require('body-parser');
 
 // Middleware
@@ -222,7 +252,7 @@ function checkAndSendAlert(desa, sensorDistance, rainStatus) {
   }
 }
 
-// PostgreSQL login
+// LOGIN SYSTEM (HARDCODED - tanpa database)
 app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
@@ -231,15 +261,13 @@ app.post('/login', async (req, res) => {
   const { email, password } = req.body;
   
   try {
-    const result = await pool.query(
-      'SELECT * FROM users WHERE email = $1 AND password = $2',
-      [email, password]
-    );
+    // Cari user berdasarkan email dan password
+    const user = users.find(u => u.email === email && u.password === password);
 
-    if (result.rows.length > 0) {
-      const user = result.rows[0];
+    if (user) {
       console.log('🔐 Login berhasil:', user.username, '| Role:', user.role, '| Desa:', user.desa);
 
+      // Redirect berdasarkan role
       if (user.role === 'pemerintah') {
         res.redirect('/pemerintah.html');
       } else if (user.role === 'kepala_desa') {
@@ -250,12 +278,28 @@ app.post('/login', async (req, res) => {
         res.send('<script>alert("Role tidak dikenali."); window.location.href="/login";</script>');
       }
     } else {
-      res.send('<script>alert("Login gagal!"); window.location.href="/login";</script>');
+      res.send('<script>alert("Login gagal! Email atau password salah."); window.location.href="/login";</script>');
     }
   } catch (err) {
     console.error('❌ Error saat login:', err);
     res.status(500).send('Terjadi kesalahan saat login.');
   }
+});
+
+// API untuk melihat daftar user (untuk debugging)
+app.get('/users', (req, res) => {
+  // Kirim user tanpa password untuk keamanan
+  const usersWithoutPassword = users.map(user => ({
+    email: user.email,
+    username: user.username,
+    role: user.role,
+    desa: user.desa
+  }));
+  
+  res.json({
+    message: 'Daftar user yang tersedia',
+    users: usersWithoutPassword
+  });
 });
 
 // Variabel penyimpan data
@@ -576,15 +620,12 @@ app.use((err, req, res, next) => {
 // Jalankan server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  pool.connect((err, client, release) => {
-    if (err) {
-      return console.error('❌ Gagal koneksi ke database:', err.stack);
-    }
-    console.log('✅ Berhasil koneksi ke PostgreSQL');
-    release();
-  });
-  
   console.log(`🚀 Server berjalan di http://localhost:${PORT}`);
+  console.log('🔐 Login Credentials:');
+  console.log('   - Pemerintah: pemerintah@admin.com / admin123');
+  console.log('   - Kepala Desa 1: kepala1@desa1.com / desa1123');
+  console.log('   - Kepala Desa 2: kepala2@desa2.com / desa2123');
+  console.log('   - Warga: warga@desa.com / warga123');
   console.log(`📡 Listening to topics:`);
   console.log(`   - mohamadkharizalfirdaus@gmail.com/desa1/hcsr04`);
   console.log(`   - mohamadkharizalfirdaus@gmail.com/desa1/rain`);
