@@ -41,7 +41,8 @@ const users = [
 const bodyParser = require('body-parser');
 
 // Middleware
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true })); 
+app.use(express.json()); // tambahkan ini
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -649,3 +650,5 @@ process.on('SIGINT', () => {
   mqttClient.end();
   process.exit(0);
 });
+
+module.exports = app;
