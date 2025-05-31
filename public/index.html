@@ -38,9 +38,15 @@
             font-weight: bold;
             color: #333;
         }
+        .info-card .sub-value {
+            font-size: 12px;
+            color: #888;
+            margin-top: 5px;
+        }
         .desa1-data { border-left: 4px solid #4285F4; }
         .desa2-data { border-left: 4px solid #EA4335; }
         .connection-status { border-left: 4px solid #34A853; }
+        .rain-status { border-left: 4px solid #FBBC05; }
         
         .villages-container {
             display: grid;
@@ -83,6 +89,11 @@
             color: #2e7d32;
         }
         
+        .status-warning {
+            background-color: #fff8e1;
+            color: #ff8f00;
+        }
+        
         .status-danger {
             background-color: #ffebee;
             color: #c62828;
@@ -121,6 +132,10 @@
             background-color: #ffebee !important;
             color: #c62828;
         }
+        .warning-row {
+            background-color: #fff8e1 !important;
+            color: #ff8f00;
+        }
         
         .combined-chart {
             background: white;
@@ -136,6 +151,31 @@
             color: #333;
         }
         
+        .rain-indicator {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        
+        .rain-heavy {
+            background-color: #4285F4;
+        }
+        .rain-moderate {
+            background-color: #5C6BC0;
+        }
+        .rain-light {
+            background-color: #42A5F5;
+        }
+        .rain-none {
+            background-color: #34A853;
+        }
+        .rain-unknown {
+            background-color: #9E9E9E;
+        }
+        
         @media (max-width: 1024px) {
             .villages-container {
                 grid-template-columns: 1fr;
@@ -147,22 +187,51 @@
                 grid-template-columns: 1fr 1fr;
             }
         }
+        
+        [title] {
+            position: relative;
+            cursor: help;
+        }
+        [title]:hover::after {
+            content: attr(title);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            z-index: 1000;
+        }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>🌊 Sistem Early Warning Banjir</h1>
-        <p>Monitoring Real-time Ketinggian Air Desa 1 & Desa 2</p>
+        <p>Monitoring Real-time Ketinggian Air & Status Hujan Desa 1 & Desa 2</p>
     </div>
     
     <div class="status-overview">
         <div class="info-card desa1-data">
             <h4>Desa 1 - Ketinggian Air</h4>
             <div class="value" id="desa1Value">-- cm</div>
+            <div class="sub-value" id="desa1SensorValue">Sensor: -- cm</div>
         </div>
         <div class="info-card desa2-data">
             <h4>Desa 2 - Ketinggian Air</h4>
             <div class="value" id="desa2Value">-- cm</div>
+            <div class="sub-value" id="desa2SensorValue">Sensor: -- cm</div>
+        </div>
+        <div class="info-card rain-status">
+            <h4>Desa 1 - Status Hujan</h4>
+            <div class="value" id="desa1RainStatus">--</div>
+        </div>
+        <div class="info-card rain-status">
+            <h4>Desa 2 - Status Hujan</h4>
+            <div class="value" id="desa2RainStatus">--</div>
         </div>
         <div class="info-card connection-status">
             <h4>Status Koneksi</h4>
@@ -201,11 +270,13 @@
                     <thead>
                         <tr>
                             <th>Waktu</th>
-                            <th>Ketinggian (cm)</th>
+                            <th>Ketinggian Air</th>
+                            <th>Jarak Sensor</th>
+                            <th>Status Hujan</th>
                         </tr>
                     </thead>
                     <tbody id="desa1Table">
-                        <tr><td colspan="2">Menunggu data...</td></tr>
+                        <tr><td colspan="4">Menunggu data...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -228,24 +299,26 @@
                     <thead>
                         <tr>
                             <th>Waktu</th>
-                            <th>Ketinggian (cm)</th>
+                            <th>Ketinggian Air</th>
+                            <th>Jarak Sensor</th>
+                            <th>Status Hujan</th>
                         </tr>
                     </thead>
                     <tbody id="desa2Table">
-                        <tr><td colspan="2">Menunggu data...</td></tr>
+                        <tr><td colspan="4">Menunggu data...</td></tr>
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
 
-    <script>
+<script>
         // Configuration
         const maxDataPoints = 30;
         const maxTableRows = 10;
-        const threshold = 100;
-        let isDemo = true;
-        let demoCounter = 0;
+        const maxSensorDistance = 17; 
+        const minSensorDistance = 0;   
+        const dangerThreshold = 7;    
 
         // Data storage
         let desa1Data = [];
@@ -258,10 +331,17 @@
             maintainAspectRatio: false,
             scales: {
                 y: {
-                    beginAtZero: true,
+                    min: 0,
+                    max: 18,
+                    ticks: {
+                        stepSize: 2,
+                        callback: function(value) {
+                            return value + ' cm';
+                        }
+                    },
                     title: {
                         display: true,
-                        text: 'Ketinggian (cm)'
+                        text: 'Ketinggian Air (cm)'
                     },
                     grid: {
                         color: 'rgba(0,0,0,0.1)'
@@ -283,7 +363,7 @@
                 },
                 tooltip: {
                     callbacks: {
-                        label: (context) => `${context.dataset.label}: ${context.parsed.y} cm`
+                        label: (context) => `${context.dataset.label}: ${context.parsed.y.toFixed(1)} cm`
                     }
                 }
             },
@@ -363,49 +443,83 @@
             options: chartOptions
         });
 
-        // Demo data generation
-        function getSimulatedData(offset = 0) {
-            demoCounter++;
-            const baseLevel = 80 + offset;
-            const variation = Math.sin((demoCounter + offset) * 0.1) * 20 + Math.random() * 10;
-            return Math.max(0, baseLevel + variation);
+        function convertSensorToWaterLevel(sensorReading) {
+            const waterLevel = maxSensorDistance - parseFloat(sensorReading);
+            return Math.max(0, Math.min(maxSensorDistance, waterLevel));
+        }
+
+        // Enhanced rain status formatting with more robust handling
+        function formatRainStatus(status) {
+            const normalizedStatus = normalizeRainStatus(status);
+            
+            const statusMap = {
+                'heavy': { text: 'Hujan Lebat', class: 'rain-heavy', emoji: '🌧️' },
+                'moderate': { text: 'Hujan Sedang', class: 'rain-moderate', emoji: '🌧️' },
+                'light': { text: 'Gerimis', class: 'rain-light', emoji: '🌦️' },
+                'none': { text: 'Cerah', class: 'rain-none', emoji: '☀️' },
+                'unknown': { text: 'Tidak Diketahui', class: 'rain-unknown', emoji: '❓' }
+            };
+            
+            const statusInfo = statusMap[normalizedStatus] || statusMap['unknown'];
+            
+            return `<span class="rain-indicator ${statusInfo.class}"></span>${statusInfo.emoji} ${statusInfo.text}`;
+        }
+
+        function normalizeRainStatus(status) {
+            if (!status || status === 'undefined' || status === 'null') {
+                return 'unknown';
+            }
+            
+            const statusLower = status.toString().toLowerCase().trim();
+            
+            if (statusLower.includes('heavy') || statusLower.includes('lebat')) {
+                return 'heavy';
+            } else if (statusLower.includes('moderate') || statusLower.includes('sedang')) {
+                return 'moderate';
+            } else if (statusLower.includes('light') || statusLower.includes('gerimis')) {
+                return 'light';
+            } else if (statusLower.includes('no rain') || statusLower.includes('cerah') || statusLower.includes('none') || statusLower === 'clear') {
+                return 'none';
+            } else {
+                return 'unknown';
+            }
         }
 
         // Update data function
         async function updateData() {
             try {
-                let desa1Distance, desa2Distance, mqttConnected = false;
-                
-                if (isDemo) {
-                    desa1Distance = getSimulatedData(0);
-                    desa2Distance = getSimulatedData(10);
-                    mqttConnected = true;
-                } else {
-                    const response = await fetch('http://localhost:3000/data');
-                    if (!response.ok) throw new Error("Gagal mengambil data");
-                    const data = await response.json();
-                    
-                    desa1Distance = parseFloat(data.desa1.distance) || 0;
-                    desa2Distance = parseFloat(data.desa2.distance) || 0;
-                    mqttConnected = data.mqttConnected;
-                }
+                const response = await fetch('/data');
+                if (!response.ok) throw new Error("Gagal mengambil data");
+                const rawData = await response.json();
 
                 const now = new Date();
                 const timeString = now.toLocaleTimeString();
                 
+                // Parse data dengan menggunakan nilai dari server yang sudah diproses
+                const desa1WaterLevel = rawData.desa1?.waterLevel || 0;
+                const desa2WaterLevel = rawData.desa2?.waterLevel || 0;
+                const desa1SensorDistance = rawData.desa1?.sensorDistance || 17;
+                const desa2SensorDistance = rawData.desa2?.sensorDistance || 17;
+                const desa1RainStatus = normalizeRainStatus(rawData.desa1?.rainStatus);
+                const desa2RainStatus = normalizeRainStatus(rawData.desa2?.rainStatus);
+                const mqttConnected = rawData.mqttConnected || false;
+                
                 // Store data
                 desa1Data.push({
                     time: timeString,
-                    value: desa1Distance,
+                    value: desa1WaterLevel,
+                    sensorReading: desa1SensorDistance,
+                    rainStatus: desa1RainStatus,
                     timestamp: now
                 });
-                
+
                 desa2Data.push({
                     time: timeString,
-                    value: desa2Distance,
+                    value: desa2WaterLevel,
+                    sensorReading: desa2SensorDistance,
+                    rainStatus: desa2RainStatus,
                     timestamp: now
-                });
-                
+                });                
                 chartLabels.push(timeString);
                 
                 // Limit data points
@@ -418,14 +532,14 @@
                 // Update all components
                 updateCharts();
                 updateTables();
-                updateInfoCards(desa1Distance, desa2Distance, mqttConnected);
-                updateVillageStatus(desa1Distance, desa2Distance);
+                updateInfoCards(desa1WaterLevel, desa2WaterLevel, desa1SensorDistance, desa2SensorDistance, desa1RainStatus, desa2RainStatus, mqttConnected);
+                updateVillageStatus(desa1SensorDistance, desa2SensorDistance, desa1WaterLevel, desa2WaterLevel);
                 
                 // Update connection status
                 document.getElementById('connectionStatus').textContent = '✅';
                 document.getElementById('mqttStatus').textContent = mqttConnected ? '✅' : '❌';
                 
-                console.log(`📊 Data updated - Desa1: ${desa1Distance.toFixed(1)}cm, Desa2: ${desa2Distance.toFixed(1)}cm`);
+                console.log(`📊 Data updated - Desa1: ${desa1WaterLevel.toFixed(1)}cm (sensor: ${desa1SensorDistance}cm, ${desa1RainStatus}), Desa2: ${desa2WaterLevel.toFixed(1)}cm (sensor: ${desa2SensorDistance}cm, ${desa2RainStatus})`);
                 
             } catch (error) {
                 console.error('Error updating data:', error);
@@ -470,7 +584,7 @@
             if (recentData.length === 0) {
                 const row = tbody.insertRow();
                 const cell = row.insertCell(0);
-                cell.colSpan = 2;
+                cell.colSpan = 4;
                 cell.textContent = 'Menunggu data...';
                 return;
             }
@@ -478,69 +592,67 @@
             recentData.forEach(point => {
                 const row = tbody.insertRow();
                 const cellTime = row.insertCell(0);
-                const cellValue = row.insertCell(1);
+                const cellWaterLevel = row.insertCell(1);
+                const cellSensorDistance = row.insertCell(2);
+                const cellRain = row.insertCell(3);
                 
                 cellTime.textContent = point.time;
-                cellValue.textContent = `${point.value.toFixed(1)} cm`;
+                cellWaterLevel.textContent = `${point.value.toFixed(1)} cm`;
+                cellSensorDistance.textContent = `${point.sensorReading.toFixed(1)} cm`;
+                cellRain.innerHTML = formatRainStatus(point.rainStatus);
                 
-                if (point.value > threshold) {
+                if (point.sensorReading < dangerThreshold) {
                     row.className = 'danger-row';
+                    row.title = 'Kondisi bahaya: air meluap';
+                } else if (point.sensorReading < 13) {
+                    row.className = 'warning-row';
+                    row.title = 'Peringatan: air mulai naik';
+                } else {
+                    row.title = 'Kondisi normal';
                 }
             });
         }
 
         // Update info cards
-        function updateInfoCards(desa1Value, desa2Value, mqttConnected) {
-            document.getElementById('desa1Value').textContent = `${desa1Value.toFixed(1)} cm`;
-            document.getElementById('desa2Value').textContent = `${desa2Value.toFixed(1)} cm`;
+        function updateInfoCards(desa1WaterLevel, desa2WaterLevel, desa1SensorDistance, desa2SensorDistance, desa1RainStatus, desa2RainStatus, mqttConnected) {
+            document.getElementById('desa1Value').textContent = `${desa1WaterLevel.toFixed(1)} cm`;
+            document.getElementById('desa2Value').textContent = `${desa2WaterLevel.toFixed(1)} cm`;
+            document.getElementById('desa1SensorValue').textContent = `Sensor: ${desa1SensorDistance.toFixed(1)} cm`;
+            document.getElementById('desa2SensorValue').textContent = `Sensor: ${desa2SensorDistance.toFixed(1)} cm`;
+            document.getElementById('desa1RainStatus').innerHTML = formatRainStatus(desa1RainStatus);
+            document.getElementById('desa2RainStatus').innerHTML = formatRainStatus(desa2RainStatus);
         }
 
         // Update village status
-        function updateVillageStatus(desa1Value, desa2Value) {
-            updateSingleVillageStatus('desa1Status', desa1Value);
-            updateSingleVillageStatus('desa2Status', desa2Value);
+        function updateVillageStatus(desa1SensorDistance, desa2SensorDistance, desa1WaterLevel, desa2WaterLevel) {
+            updateSingleVillageStatus('desa1Status', desa1SensorDistance, desa1WaterLevel);
+            updateSingleVillageStatus('desa2Status', desa2SensorDistance, desa2WaterLevel);
         }
 
-        function updateSingleVillageStatus(elementId, value) {
+        function updateSingleVillageStatus(elementId, sensorReading, waterLevel) {
             const statusElement = document.getElementById(elementId);
             
-            if (value > threshold) {
-                statusElement.textContent = `🚨 BAHAYA ${value.toFixed(1)} cm`;
+            if (sensorReading < dangerThreshold) {
+                statusElement.textContent = `🚨 MELUAP (${waterLevel.toFixed(1)} cm)`;
                 statusElement.className = 'village-status status-danger';
+            } else if (sensorReading < 13) {
+                statusElement.textContent = `⚠️ NAIK (${waterLevel.toFixed(1)} cm)`;
+                statusElement.className = 'village-status status-warning';
             } else {
-                statusElement.textContent = `✅ AMAN ${value.toFixed(1)} cm`;
+                statusElement.textContent = `✅ NORMAL (${waterLevel.toFixed(1)} cm)`;
                 statusElement.className = 'village-status status-safe';
-            }
-        }
-
-        // Check server connection
-        async function checkServerConnection() {
-            try {
-                const response = await fetch('http://localhost:3000/data');
-                if (response.ok) {
-                    isDemo = false;
-                    console.log('✅ Server connected - Using real data');
-                } else {
-                    throw new Error('Server not responding');
-                }
-            } catch (error) {
-                isDemo = true;
-                console.log('⚠️ Server not available - Using demo data');
             }
         }
 
         // Initialize application
         async function initialize() {
-            await checkServerConnection();
-            
             console.log('🚀 Initializing dual village monitoring system...');
-            console.log('📊 Demo mode:', isDemo ? 'ON' : 'OFF');
             
             // Initial data update
             await updateData();
             
             // Set up regular updates
-            const updateInterval = setInterval(updateData, 2000); // Update every 2 seconds
+            const updateInterval = setInterval(updateData, 2000);
             
             console.log('⏰ Update interval started (2 seconds)');
             
