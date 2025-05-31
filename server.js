@@ -5,14 +5,6 @@ const path = require('path');
 
 const app = express();
 
-//WebSocket
-const http = require('http');
-const WebSocket = require('ws');
-
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
-
-let clients = [];
 
 //postgreSQL
 const pool = require('./database'); // koneksi PostgreSQL
@@ -73,7 +65,7 @@ let latestData = {
   desa2: { distance: "17", rainStatus: "unknown", lastUpdate: null }
 };
 
-// Status koneksi mqtt
+// Status koneksi
 let mqttConnected = false;
 
 // Konstanta untuk sensor ultrasonik
@@ -337,17 +329,6 @@ app.get('/debug/rain', (req, res) => {
       'hujan': mapRainStatus('hujan'),
       'tidak hujan': mapRainStatus('tidak hujan')
     }
-  });
-});
-
-//koneksi WebSocket
-wss.on('connection', (ws) => {
-  console.log('🔌 Client terhubung via WebSocket');
-  clients.push(ws);
-
-  ws.on('close', () => {
-    console.log('❌ Client WebSocket terputus');
-    clients = clients.filter(client => client !== ws);
   });
 });
 

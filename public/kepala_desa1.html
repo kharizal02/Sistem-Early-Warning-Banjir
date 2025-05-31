@@ -603,6 +603,18 @@
 
         // Start the application
         initialize();
+
+        //Websocket client side
+        const ws = new WebSocket('ws://' + window.location.hostname + ':3000');
+
+        ws.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+
+        // Cek apakah notifikasi relevan untuk Kepala Desa 1
+        if (data.type === 'waterAlert' && data.desa === 'desa1') {
+            alert(data.message); // Ganti dengan Swal.fire jika ingin lebih cantik
+          }
+        };
     </script>
 </body>
 </html>
