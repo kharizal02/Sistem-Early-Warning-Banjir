@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Monitoring Ketinggian Air - Desa 2</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .info-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .info-card h4 {
+            margin: 0 0 10px 0;
+            color: #666;
+            font-size: 14px;
+        }
+        .info-card .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        .info-card .sub-value {
+            font-size: 12px;
+            color: #888;
+            margin-top: 5px;
+        }
+        .desa2-data { border-left: 4px solid #EA4335; }
+        .connection-status { border-left: 4px solid #34A853; }
+        .rain-status { border-left: 4px solid #FBBC05; }
+        
+        .village-section {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .village-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #eee;
+        }
+        
+        .village-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .village-status {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        
+        .status-safe {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        
+        .status-warning {
+            background-color: #fff8e1;
+            color: #ff8f00;
+        }
+        
+        .status-danger {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        
+        .chart-container {
+            height: 300px;
+            margin-bottom: 20px;
+        }
+        
+        .data-table-container {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #555;
+            position: sticky;
+            top: 0;
+        }
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+        .danger-row {
+            background-color: #ffebee !important;
+            color: #c62828;
+        }
+        .warning-row {
+            background-color: #fff8e1 !important;
+            color: #ff8f00;
+        }
+        
+        .rain-indicator {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        
+        .rain-heavy {
+            background-color: #4285F4;
+        }
+        .rain-moderate {
+            background-color: #5C6BC0;
+        }
+        .rain-light {
+            background-color: #42A5F5;
+        }
+        .rain-none {
+            background-color: #34A853;
+        }
+        .rain-unknown {
+            background-color: #9E9E9E;
+        }
+        
+        @media (max-width: 768px) {
+            .status-overview {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        
+        [title] {
+            position: relative;
+            cursor: help;
+        }
+        [title]:hover::after {
+            content: attr(title);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            z-index: 1000;
+        }
+        
+        .action-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .btn-alert {
+            background-color: #EA4335;
+            color: white;
+        }
+        
+        .btn-report {
+            background-color: #EA4335;
+            color: white;
+        }
+        
+        .btn-settings {
+            background-color: #FBBC05;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🌊 Sistem Early Warning Banjir - Desa 2</h1>
+        <p>Dashboard Monitoring Khusus Kepala Desa</p>
+    </div>
+    
+    <div class="action-buttons">
+        <button class="btn btn-alert" id="sendAlertBtn">🚨 Kirim Peringatan</button>
+        <button class="btn btn-report" id="generateReportBtn">📊 Buat Laporan</button>
+        <button class="btn btn-settings" id="settingsBtn">⚙️ Pengaturan</button>
+    </div>
+    
+    <div class="status-overview">
+        <div class="info-card desa2-data">
+            <h4>Ketinggian Air</h4>
+            <div class="value" id="desa2Value">-- cm</div>
+            <div class="sub-value" id="desa2SensorValue">Sensor: -- cm</div>
+        </div>
+        <div class="info-card rain-status">
+            <h4>Status Hujan</h4>
+            <div class="value" id="desa2RainStatus">--</div>
+        </div>
+        <div class="info-card connection-status">
+            <h4>Status Koneksi</h4>
+            <div class="value" id="connectionStatus">🔄</div>
+        </div>
+        <div class="info-card">
+            <h4>Status Sensor</h4>
+            <div class="value" id="sensorStatus">🔄</div>
+        </div>
+    </div>
+
+    <!-- Village Section -->
+    <div class="village-section">
+        <div class="village-header">
+            <div class="village-title">🏘️ Desa 2 - Monitoring Real-time</div>
+            <div class="village-status" id="desa2Status">Memantau...</div>
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="desa2Chart"></canvas>
+        </div>
+        
+        <div class="data-table-container">
+            <h4>📋 Data Terbaru (10 Pengukuran Terakhir)</h4>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Waktu</th>
+                        <th>Ketinggian Air</th>
+                        <th>Jarak Sensor</th>
+                        <th>Status Hujan</th>
+                    </tr>
+                </thead>
+                <tbody id="desa2Table">
+                    <tr><td colspan="4">Menunggu data...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const maxDataPoints = 30;
+        const maxTableRows = 10;
+        const maxSensorDistance = 17; 
+        const minSensorDistance = 0;   
+        const dangerThreshold = 7;    
+
+        // Data storage
+        let desa2Data = [];
+        let chartLabels = [];
+
+        // Chart configuration
+        const chartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    min: 0,
+                    max: 18,
+                    ticks: {
+                        stepSize: 2,
+                        callback: function(value) {
+                            return value + ' cm';
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Ketinggian Air (cm)'
+                    },
+                    grid: {
+                        color: 'rgba(0,0,0,0.1)'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Waktu'
+                    },
+                    grid: {
+                        color: 'rgba(0,0,0,0.1)'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (context) => `${context.dataset.label}: ${context.parsed.y.toFixed(1)} cm`
+                    }
+                },
+                annotation: {
+                    annotations: {
+                        dangerLine: {
+                            type: 'line',
+                            yMin: dangerThreshold,
+                            yMax: dangerThreshold,
+                            borderColor: 'red',
+                            borderWidth: 2,
+                            borderDash: [6, 6],
+                            label: {
+                                content: 'Batas Bahaya',
+                                enabled: true,
+                                position: 'left'
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        // Initialize Chart
+        const desa2Ctx = document.getElementById('desa2Chart').getContext('2d');
+        const desa2Chart = new Chart(desa2Ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Ketinggian Air Desa 2',
+                    data: [],
+                    borderColor: '#EA4335',
+                    backgroundColor: 'rgba(234, 67, 53, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 3,
+                    pointHoverRadius: 5
+                }]
+            },
+            options: chartOptions
+        });
+
+        function convertSensorToWaterLevel(sensorReading) {
+            const waterLevel = maxSensorDistance - parseFloat(sensorReading);
+            return Math.max(0, Math.min(maxSensorDistance, waterLevel));
+        }
+
+        function formatRainStatus(status) {
+            const normalizedStatus = normalizeRainStatus(status);
+            
+            const statusMap = {
+                'heavy': { text: 'Hujan Lebat', class: 'rain-heavy', emoji: '🌧️' },
+                'moderate': { text: 'Hujan Sedang', class: 'rain-moderate', emoji: '🌧️' },
+                'light': { text: 'Gerimis', class: 'rain-light', emoji: '🌦️' },
+                'none': { text: 'Cerah', class: 'rain-none', emoji: '☀️' },
+                'unknown': { text: 'Tidak Diketahui', class: 'rain-unknown', emoji: '❓' }
+            };
+            
+            const statusInfo = statusMap[normalizedStatus] || statusMap['unknown'];
+            
+            return `<span class="rain-indicator ${statusInfo.class}"></span>${statusInfo.emoji} ${statusInfo.text}`;
+        }
+
+        function normalizeRainStatus(status) {
+            if (!status || status === 'undefined' || status === 'null') {
+                return 'unknown';
+            }
+            
+            const statusLower = status.toString().toLowerCase().trim();
+            
+            if (statusLower.includes('heavy') || statusLower.includes('lebat')) {
+                return 'heavy';
+            } else if (statusLower.includes('moderate') || statusLower.includes('sedang')) {
+                return 'moderate';
+            } else if (statusLower.includes('light') || statusLower.includes('gerimis')) {
+                return 'light';
+            } else if (statusLower.includes('no rain') || statusLower.includes('cerah') || statusLower.includes('none') || statusLower === 'clear') {
+                return 'none';
+            } else {
+                return 'unknown';
+            }
+        }
+
+        // Update data function
+        async function updateData() {
+            try {
+                const response = await fetch('/desa2/data');
+                if (!response.ok) throw new Error("Gagal mengambil data");
+                const rawData = await response.json();
+
+                const now = new Date();
+                const timeString = now.toLocaleTimeString();
+                
+                // Parse data dengan menggunakan nilai dari server yang sudah diproses
+                const waterLevel = rawData.waterLevel || 0;
+                const sensorDistance = rawData.sensorDistance || 17;
+                const rainStatus = normalizeRainStatus(rawData.rainStatus);
+                const mqttConnected = rawData.mqttConnected || false;
+                const sensorActive = rawData.sensorActive || false;
+                
+                // Store data
+                desa2Data.push({
+                    time: timeString,
+                    value: waterLevel,
+                    sensorReading: sensorDistance,
+                    rainStatus: rainStatus,
+                    timestamp: now
+                });
+
+                chartLabels.push(timeString);
+                
+                // Limit data points
+                if (desa2Data.length > maxDataPoints) {
+                    desa2Data.shift();
+                    chartLabels.shift();
+                }
+                
+                // Update all components
+                updateChart();
+                updateTable();
+                updateInfoCards(waterLevel, sensorDistance, rainStatus, mqttConnected, sensorActive);
+                updateVillageStatus(sensorDistance, waterLevel);
+                
+                // Update connection status
+                document.getElementById('connectionStatus').textContent = '✅';
+                document.getElementById('sensorStatus').textContent = sensorActive ? '✅' : '❌';
+                
+                console.log(`📊 Data updated - Desa2: ${waterLevel.toFixed(1)}cm (sensor: ${sensorDistance}cm, ${rainStatus})`);
+                
+            } catch (error) {
+                console.error('Error updating data:', error);
+                document.getElementById('connectionStatus').textContent = '❌';
+                document.getElementById('sensorStatus').textContent = '❌';
+            }
+        }
+
+        // Update chart
+        function updateChart() {
+            const values = desa2Data.map(d => d.value);
+            
+            desa2Chart.data.labels = chartLabels;
+            desa2Chart.data.datasets[0].data = values;
+            desa2Chart.update('none');
+        }
+
+        // Update table
+        function updateTable() {
+            const tbody = document.getElementById('desa2Table');
+            const recentData = desa2Data.slice(-maxTableRows).reverse();
+            
+            tbody.innerHTML = '';
+            
+            if (recentData.length === 0) {
+                const row = tbody.insertRow();
+                const cell = row.insertCell(0);
+                cell.colSpan = 4;
+                cell.textContent = 'Menunggu data...';
+                return;
+            }
+            
+            recentData.forEach(point => {
+                const row = tbody.insertRow();
+                const cellTime = row.insertCell(0);
+                const cellWaterLevel = row.insertCell(1);
+                const cellSensorDistance = row.insertCell(2);
+                const cellRain = row.insertCell(3);
+                
+                cellTime.textContent = point.time;
+                cellWaterLevel.textContent = `${point.value.toFixed(1)} cm`;
+                cellSensorDistance.textContent = `${point.sensorReading.toFixed(1)} cm`;
+                cellRain.innerHTML = formatRainStatus(point.rainStatus);
+                
+                if (point.sensorReading < dangerThreshold) {
+                    row.className = 'danger-row';
+                    row.title = 'Kondisi bahaya: air meluap';
+                } else if (point.sensorReading < 13) {
+                    row.className = 'warning-row';
+                    row.title = 'Peringatan: air mulai naik';
+                } else {
+                    row.title = 'Kondisi normal';
+                }
+            });
+        }
+
+        // Update info cards
+        function updateInfoCards(waterLevel, sensorDistance, rainStatus, mqttConnected, sensorActive) {
+            document.getElementById('desa2Value').textContent = `${waterLevel.toFixed(1)} cm`;
+            document.getElementById('desa2SensorValue').textContent = `Sensor: ${sensorDistance.toFixed(1)} cm`;
+            document.getElementById('desa2RainStatus').innerHTML = formatRainStatus(rainStatus);
+        }
+
+        // Update village status
+        function updateVillageStatus(sensorReading, waterLevel) {
+            const statusElement = document.getElementById('desa2Status');
+            
+            if (sensorReading < dangerThreshold) {
+                statusElement.textContent = `🚨 MELUAP (${waterLevel.toFixed(1)} cm)`;
+                statusElement.className = 'village-status status-danger';
+                
+                // Trigger alert if in danger state
+                showAlertNotification();
+            } else if (sensorReading < 13) {
+                statusElement.textContent = `⚠️ NAIK (${waterLevel.toFixed(1)} cm)`;
+                statusElement.className = 'village-status status-warning';
+            } else {
+                statusElement.textContent = `✅ NORMAL (${waterLevel.toFixed(1)} cm)`;
+                statusElement.className = 'village-status status-safe';
+            }
+        }
+
+        // Alert notification function
+        function showAlertNotification() {
+            if (Notification.permission === "granted") {
+                new Notification("Peringatan Banjir!", {
+                    body: `Ketinggian air mencapai ${document.getElementById('desa2Value').textContent} - Status: MELUAP!`,
+                    icon: "/warning-icon.png"
+                });
+            } else if (Notification.permission !== "denied") {
+                Notification.requestPermission().then(permission => {
+                    if (permission === "granted") {
+                        showAlertNotification();
+                    }
+                });
+            }
+        }
+
+        // Button event handlers
+        document.getElementById('sendAlertBtn').addEventListener('click', () => {
+            const message = prompt("Masukkan pesan peringatan untuk warga:");
+            if (message) {
+                fetch('/send-alert', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ message, desa: 2 })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    alert(`Peringatan terkirim: ${data.message}`);
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Gagal mengirim peringatan');
+                });
+            }
+        });
+
+        document.getElementById('generateReportBtn').addEventListener('click', () => {
+            window.open('/generate-report?type=daily&desa=2', '_blank');
+        });
+
+        document.getElementById('settingsBtn').addEventListener('click', () => {
+            window.location.href = '/settings?desa=2';
+        });
+
+        // Initialize application
+        async function initialize() {
+            console.log('🚀 Initializing Desa 2 monitoring system...');
+            
+            // Request notification permission
+            if ('Notification' in window) {
+                Notification.requestPermission();
+            }
+            
+            // Initial data update
+            await updateData();
+            
+            // Set up regular updates
+            const updateInterval = setInterval(updateData, 2000);
+            
+            console.log('⏰ Update interval started (2 seconds)');
+            
+            // Cleanup on page unload
+            window.addEventListener('beforeunload', () => {
+                clearInterval(updateInterval);
+            });
+        }
+
+        // Start the application
+        initialize();
+    </script>
+</body>
+</html>
