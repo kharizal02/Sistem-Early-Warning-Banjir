@@ -2,62 +2,261 @@ const express = require('express');
 const mqtt = require('mqtt');
 const cors = require('cors');
 const path = require('path');
+const nodemailer = require('nodemailer');
 
 const app = express();
 
-
-//postgreSQL
-const pool = require('./database'); // koneksi PostgreSQL
-const bodyParser = require('body-parser'); // untuk parsing form login
+// PostgreSQL
+const pool = require('./database');
+const bodyParser = require('body-parser');
 
 // Middleware
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Konfigurasi Email
+const emailConfig = {
+  service: 'gmail',
+  user: 'mohamadkharizalfirdaus@gmail.com',
+  pass: 'tnql ymkd foci ldbw',
+  recipient: [
+    'pemerintahkelompok9@gmail.com',
+    'mkfscaraz@gmail.com',
+    'bintangairlangga07@gmail.com'
+  ],
+};
 
-//koneksi postgreSQL
+const transporter = nodemailer.createTransport({
+  service: emailConfig.service,
+  auth: {
+    user: emailConfig.user,
+    pass: emailConfig.pass
+  }
+});
+
+// Variabel untuk tracking email alert (PERBAIKAN UTAMA)
+const emailAlertStatus = {
+  desa1: {
+    lastAlertSent: null,
+    alertActive: false,
+    dangerCondition: false,
+    dangerStartTime: null,
+    cooldownActive: false,
+    cooldownEndTime: null
+  },
+  desa2: {
+    lastAlertSent: null,
+    alertActive: false,
+    dangerCondition: false,
+    dangerStartTime: null,
+    cooldownActive: false,
+    cooldownEndTime: null
+  }
+};
+
+const EMAIL_COOLDOWN_PERIOD = 30 * 60 * 1000; // 30 menit
+const MIN_DANGER_DURATION = 0; // Minimal 5 menit kondisi bahaya sebelum kirim email
+
+// Fungsi untuk mengirim email peringatan bahaya banjir
+async function sendFloodAlert(desa, waterLevel, sensorDistance, rainStatus) {
+  const now = new Date();
+  const desaName = desa === 'desa1' ? 'Desa 1' : 'Desa 2';
+  
+  // Update status alert
+  emailAlertStatus[desa].lastAlertSent = now;
+  emailAlertStatus[desa].alertActive = true;
+  emailAlertStatus[desa].cooldownActive = true;
+  emailAlertStatus[desa].cooldownEndTime = new Date(now.getTime() + EMAIL_COOLDOWN_PERIOD);
+
+  const mailOptions = {
+    from: emailConfig.user,
+    to: emailConfig.recipient,
+    subject: `🚨 ALERT BAHAYA BANJIR - ${desaName.toUpperCase()}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #dc2626; color: white; padding: 20px; text-align: center;">
+          <h1>🚨 PERINGATAN BAHAYA BANJIR</h1>
+        </div>
+        
+        <div style="padding: 20px; background-color: #f9f9f9;">
+          <h2 style="color: #dc2626;">Kondisi Darurat Terdeteksi!</h2>
+          
+          <div style="background-color: white; padding: 15px; margin: 10px 0; border-left: 4px solid #dc2626;">
+            <h3>📍 Lokasi: ${desaName}</h3>
+            <p><strong>🕐 Waktu:</strong> ${now.toLocaleString('id-ID')}</p>
+            <p><strong>💧 Ketinggian Air:</strong> ${waterLevel.toFixed(1)} cm (MELUAP!)</p>
+            <p><strong>📱 Jarak Sensor:</strong> ${sensorDistance} cm</p>
+            <p><strong>🌧️ Status Hujan:</strong> ${rainStatus === 'heavy' ? 'HUJAN LEBAT' : 'HUJAN'}</p>
+          </div>
+
+          <div style="background-color: #fef2f2; padding: 15px; margin: 15px 0; border: 1px solid #fecaca;">
+            <h3 style="color: #dc2626;">⚠️ TINDAKAN YANG DISARANKAN:</h3>
+            <ul style="color: #7f1d1d;">
+              <li>Segera evakuasi warga di area rawan banjir</li>
+              <li>Siapkan jalur evakuasi alternatif</li>
+              <li>Koordinasikan dengan tim tanggap darurat</li>
+              <li>Pantau perkembangan kondisi secara real-time</li>
+              <li>Informasikan kepada warga melalui sistem peringatan dini</li>
+            </ul>
+          </div>
+
+          <div style="background-color: #1f2937; color: white; padding: 15px; margin: 15px 0;">
+            <h4>📊 Detail Teknis:</h4>
+            <p>• Batas bahaya: Jarak sensor < 10 cm</p>
+            <p>• Kondisi saat ini: Air sudah meluap dan hujan lebat</p>
+            <p>• Risiko: SANGAT TINGGI untuk banjir bandang</p>
+          </div>
+
+          <div style="text-align: center; margin-top: 20px;">
+            <p style="color: #6b7280; font-size: 14px;">
+              Email ini dikirim otomatis oleh Sistem Monitoring Banjir<br>
+              Mohon segera lakukan tindakan pencegahan yang diperlukan.
+            </p>
+          </div>
+        </div>
+      </div>
+    `
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`📧 ✅ Email peringatan bahaya banjir berhasil dikirim untuk ${desaName}`);
+    console.log(`📧 📤 Dikirim ke: ${emailConfig.recipient}`);
+  } catch (error) {
+    console.error(`📧 ❌ Error mengirim email untuk ${desaName}:`, error);
+  }
+}
+
+// Fungsi untuk mengirim email status aman
+async function sendSafeStatusEmail(desa) {
+  const now = new Date();
+  const desaName = desa === 'desa1' ? 'Desa 1' : 'Desa 2';
+
+  const mailOptions = {
+    from: emailConfig.user,
+    to: emailConfig.recipient,
+    subject: `✅ Update Status - ${desaName} Kondisi Aman`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #16a34a; color: white; padding: 20px; text-align: center;">
+          <h1>✅ STATUS AMAN</h1>
+        </div>
+        
+        <div style="padding: 20px; background-color: #f0fdf4;">
+          <h2 style="color: #16a34a;">Kondisi Telah Kembali Normal</h2>
+          
+          <div style="background-color: white; padding: 15px; margin: 10px 0; border-left: 4px solid #16a34a;">
+            <h3>📍 Lokasi: ${desaName}</h3>
+            <p><strong>🕐 Waktu:</strong> ${now.toLocaleString('id-ID')}</p>
+            <p><strong>📊 Status:</strong> Kondisi air dan cuaca kembali normal</p>
+          </div>
+
+          <div style="text-align: center; margin-top: 20px;">
+            <p style="color: #6b7280; font-size: 14px;">
+              Sistem Monitoring Banjir - Update Status
+            </p>
+          </div>
+        </div>
+      </div>
+    `
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    emailAlertStatus[desa].alertActive = false;
+    console.log(`📧 ✅ Email status aman dikirim untuk ${desaName}`);
+  } catch (error) {
+    console.error(`📧 ❌ Error mengirim email status aman untuk ${desaName}:`, error);
+  }
+}
+
+// Fungsi untuk memeriksa kondisi bahaya dan mengirim alert
+function checkAndSendAlert(desa, sensorDistance, rainStatus) {
+  const now = new Date();
+  const waterLevel = convertSensorToWaterLevel(sensorDistance);
+  const isWaterOverflowing = sensorDistance < DANGER_THRESHOLD;
+  const isHeavyRain = rainStatus === 'heavy';
+  const isDangerCondition = isWaterOverflowing && isHeavyRain;
+  
+  const alertStatus = emailAlertStatus[desa];
+
+  // Periksa apakah cooldown sudah selesai
+  if (alertStatus.cooldownActive && alertStatus.cooldownEndTime <= now) {
+    alertStatus.cooldownActive = false;
+    alertStatus.cooldownEndTime = null;
+  }
+
+  if (isDangerCondition) {
+    // Jika kondisi bahaya baru dimulai
+    if (!alertStatus.dangerCondition) {
+      alertStatus.dangerCondition = true;
+      alertStatus.dangerStartTime = now;
+      console.log(`🚨 KONDISI BAHAYA BARU terdeteksi di ${desa.toUpperCase()}!`);
+    } else {
+      // Jika kondisi bahaya masih berlangsung
+      const dangerDuration = now - alertStatus.dangerStartTime;
+      
+      // Kirim email jika:
+      // 1. Belum ada email yang dikirim
+      // 2. Sudah melewati durasi minimal bahaya
+      // 3. Tidak dalam cooldown period
+      if (!alertStatus.alertActive && 
+          dangerDuration >= MIN_DANGER_DURATION && 
+          !alertStatus.cooldownActive) {
+        sendFloodAlert(desa, waterLevel, sensorDistance, rainStatus);
+      }
+    }
+  } else {
+    // Jika kondisi kembali normal setelah bahaya
+    if (alertStatus.dangerCondition) {
+      alertStatus.dangerCondition = false;
+      alertStatus.dangerStartTime = null;
+      console.log(`✅ Kondisi ${desa.toUpperCase()} kembali aman`);
+      
+      // Kirim email status aman jika sebelumnya ada alert
+      if (alertStatus.alertActive) {
+        sendSafeStatusEmail(desa);
+      }
+    }
+  }
+}
+
+// PostgreSQL login
 app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
-
-    // ⬇️ Cek nilai input dari form login
-  console.log('📥 Email:', email, '| Password:', password);
-
+  
   try {
     const result = await pool.query(
-  'SELECT * FROM users WHERE email = $1 AND password = $2',
-  [email, password]
-);
+      'SELECT * FROM users WHERE email = $1 AND password = $2',
+      [email, password]
+    );
 
     if (result.rows.length > 0) {
-        const user = result.rows[0];
-        console.log('🔐 Login berhasil:', user.username, '| Role:', user.role, '| Desa:', user.desa);
+      const user = result.rows[0];
+      console.log('🔐 Login berhasil:', user.username, '| Role:', user.role, '| Desa:', user.desa);
 
-        if (user.role === 'pemerintah') {
-          res.redirect('/index.html');
-          } else if (user.role === 'kepala_desa') {
-          res.redirect(`/kepala_${user.desa}.html`);
-          } else if (user.role === 'warga') {
-          res.redirect(`/warga_${user.desa}.html`);
-        } else {
-          console.warn('⚠️ Role tidak dikenali:', user.role);
-          res.send('<script>alert("Role tidak dikenali."); window.location.href="/login";</script>');
-        }
-        } else {
-            console.log('❌ Login gagal untuk:', email);
-            res.send('<script>alert("Login gagal!"); window.location.href="/login";</script>');
-        }
-
+      if (user.role === 'pemerintah') {
+        res.redirect('/pemerintah.html');
+      } else if (user.role === 'kepala_desa') {
+        res.redirect(`/kepala_${user.desa}.html`);
+      } else if (user.role === 'warga') {
+        res.redirect(`/warga_desa.html`);
+      } else {
+        res.send('<script>alert("Role tidak dikenali."); window.location.href="/login";</script>');
+      }
+    } else {
+      res.send('<script>alert("Login gagal!"); window.location.href="/login";</script>');
+    }
   } catch (err) {
     console.error('❌ Error saat login:', err);
     res.status(500).send('Terjadi kesalahan saat login.');
   }
 });
-
 
 // Variabel penyimpan data
 let latestData = {
@@ -65,25 +264,21 @@ let latestData = {
   desa2: { distance: "17", rainStatus: "unknown", lastUpdate: null }
 };
 
-// Status koneksi
 let mqttConnected = false;
 
-// Konstanta untuk sensor ultrasonik
-const MAX_SENSOR_DISTANCE = 17; // Jarak maksimal sensor (tidak ada air)
-const MIN_SENSOR_DISTANCE = 0;  // Jarak minimal sensor (air penuh)
-const DANGER_THRESHOLD = 10;    // Jika jarak sensor < 10cm = air meluap
-const WARNING_THRESHOLD = 13;   // Jika jarak sensor < 13cm = air mulai naik
+// Konstanta sensor
+const MAX_SENSOR_DISTANCE = 17;
+const MIN_SENSOR_DISTANCE = 0;
+const DANGER_THRESHOLD = 10;
+const WARNING_THRESHOLD = 13;
 
-// Fungsi untuk konversi jarak sensor ke ketinggian air
+// Fungsi konversi sensor ke ketinggian air
 function convertSensorToWaterLevel(sensorReading) {
   const sensorDistance = parseFloat(sensorReading);
-  // Ketinggian air = maksimal jarak sensor - jarak yang terbaca
-  // Semakin kecil jarak sensor, semakin tinggi air
   const waterLevel = MAX_SENSOR_DISTANCE - sensorDistance;
   return Math.max(0, Math.min(MAX_SENSOR_DISTANCE, waterLevel));
 }
 
-// Fungsi untuk menentukan status air berdasarkan jarak sensor
 function getWaterStatus(sensorReading) {
   const sensorDistance = parseFloat(sensorReading);
   
@@ -108,11 +303,9 @@ function getWaterStatus(sensorReading) {
   }
 }
 
-// Fungsi untuk mapping status hujan dari sensor ke format yang diharapkan frontend
 function mapRainStatus(sensorStatus) {
   const status = sensorStatus.toLowerCase().trim();
   
-  // Mapping berbagai format status hujan dari sensor
   if (status.includes('heavy rain') || status.includes('hujan lebat')) {
     return 'heavy';
   } else if (status.includes('moderate rain') || status.includes('hujan sedang')) {
@@ -140,7 +333,6 @@ mqttClient.on('connect', () => {
   console.log('✅ Terhubung ke MQTT Broker (maqiatto.com)');
   mqttConnected = true;
   
-  // Subscribe ke semua topik yang diperlukan
   const topics = [
     'mohamadkharizalfirdaus@gmail.com/desa1/hcsr04',
     'mohamadkharizalfirdaus@gmail.com/desa1/rain',
@@ -162,19 +354,15 @@ mqttClient.on('message', (topic, message) => {
   const timeString = now.toLocaleTimeString();
   
   try {
-    // Tentukan node mana yang mengirim data
     const node = topic.includes('desa1') ? 'desa1' : 'desa2';
     
     if (topic.includes('hcsr04')) {
-      // Bersihkan data (hilangkan " cm" jika ada)
       const cleanData = message.toString().replace(/ cm/g, '').trim();
       const sensorDistance = parseFloat(cleanData);
       
-      // Update data jarak sensor (bukan ketinggian air)
       latestData[node].distance = cleanData;
       latestData[node].lastUpdate = now;
       
-      // Hitung ketinggian air untuk logging
       const waterLevel = convertSensorToWaterLevel(sensorDistance);
       const waterStatus = getWaterStatus(sensorDistance);
       
@@ -183,14 +371,17 @@ mqttClient.on('message', (topic, message) => {
       console.log(`   - Ketinggian air: ${waterLevel.toFixed(1)} cm`);
       console.log(`   - Status: ${waterStatus.message}`);
       
+      checkAndSendAlert(node, sensorDistance, latestData[node].rainStatus);
+      
     } else if (topic.includes('rain')) {
-      // Update status hujan dengan mapping yang benar
       const rawRainStatus = message.toString().trim();
       const mappedRainStatus = mapRainStatus(rawRainStatus);
       
       latestData[node].rainStatus = mappedRainStatus;
       
       console.log(`🌧️ [${timeString}] Status hujan ${node}: ${rawRainStatus} -> ${mappedRainStatus}`);
+      
+      checkAndSendAlert(node, parseFloat(latestData[node].distance), mappedRainStatus);
     }
     
   } catch (error) {
@@ -209,9 +400,8 @@ mqttClient.on('error', (error) => {
   mqttConnected = false;
 });
 
-// API Endpoint utama
+// API Endpoint
 app.get('/data', (req, res) => {
-  // Konversi jarak sensor ke ketinggian air untuk response
   const desa1WaterLevel = convertSensorToWaterLevel(latestData.desa1.distance);
   const desa2WaterLevel = convertSensorToWaterLevel(latestData.desa2.distance);
   const desa1Status = getWaterStatus(latestData.desa1.distance);
@@ -219,22 +409,23 @@ app.get('/data', (req, res) => {
   
   res.json({
     desa1: {
-      sensorDistance: parseFloat(latestData.desa1.distance), // Jarak sensor asli
-      waterLevel: desa1WaterLevel, // Ketinggian air yang dihitung
+      sensorDistance: parseFloat(latestData.desa1.distance),
+      waterLevel: desa1WaterLevel,
       rainStatus: latestData.desa1.rainStatus,
       waterStatus: desa1Status,
-      lastUpdate: latestData.desa1.lastUpdate
+      lastUpdate: latestData.desa1.lastUpdate,
+      emailAlert: emailAlertStatus.desa1
     },
     desa2: {
-      sensorDistance: parseFloat(latestData.desa2.distance), // Jarak sensor asli
-      waterLevel: desa2WaterLevel, // Ketinggian air yang dihitung
+      sensorDistance: parseFloat(latestData.desa2.distance),
+      waterLevel: desa2WaterLevel,
       rainStatus: latestData.desa2.rainStatus,
       waterStatus: desa2Status,
-      lastUpdate: latestData.desa2.lastUpdate
+      lastUpdate: latestData.desa2.lastUpdate,
+      emailAlert: emailAlertStatus.desa2
     },
     mqttConnected: mqttConnected,
     serverTime: new Date().toISOString(),
-    // Tambahan info untuk debugging
     thresholds: {
       maxSensorDistance: MAX_SENSOR_DISTANCE,
       dangerThreshold: DANGER_THRESHOLD,
@@ -243,7 +434,7 @@ app.get('/data', (req, res) => {
   });
 });
 
-// API untuk status sistem
+// API lainnya (status, debug, dll)
 app.get('/status', (req, res) => {
   const desa1WaterLevel = convertSensorToWaterLevel(latestData.desa1.distance);
   const desa2WaterLevel = convertSensorToWaterLevel(latestData.desa2.distance);
@@ -269,75 +460,73 @@ app.get('/status', (req, res) => {
         status: getWaterStatus(latestData.desa2.distance)
       }
     },
+    emailSystem: {
+      config: {
+        recipient: emailConfig.recipient,
+        cooldownPeriod: EMAIL_COOLDOWN_PERIOD / 1000 / 60 + ' minutes',
+        minDangerDuration: MIN_DANGER_DURATION / 1000 / 60 + ' minutes'
+      },
+      status: emailAlertStatus
+    },
     timestamp: new Date().toISOString()
   });
 });
 
-// API untuk debug water level calculation
-app.get('/debug/water', (req, res) => {
-  const testDistances = [0, 5, 10, 13, 15, 17];
-  const calculations = testDistances.map(distance => {
-    return {
-      sensorDistance: distance,
-      waterLevel: convertSensorToWaterLevel(distance),
-      status: getWaterStatus(distance)
-    };
-  });
+// API untuk test kirim email manual
+app.post('/test-email/:desa', async (req, res) => {
+  const desa = req.params.desa;
+  
+  if (!['desa1', 'desa2'].includes(desa)) {
+    return res.status(400).json({ error: 'Desa harus desa1 atau desa2' });
+  }
+  
+  try {
+    // Simulate kondisi bahaya untuk testing
+    await sendFloodAlert(desa, 12.5, 4.5, 'heavy');
+    res.json({ 
+      success: true, 
+      message: `Test email berhasil dikirim untuk ${desa}`,
+      recipient: emailConfig.recipient
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// API untuk reset email alert status
+app.post('/reset-email-alert/:desa', (req, res) => {
+  const desa = req.params.desa;
+  
+  if (!['desa1', 'desa2'].includes(desa)) {
+    return res.status(400).json({ error: 'Desa harus desa1 atau desa2' });
+  }
+  
+  emailAlertStatus[desa] = {
+    lastAlertSent: null,
+    alertActive: false,
+    dangerCondition: false,
+    dangerStartTime: null,
+    cooldownActive: false,
+    cooldownEndTime: null
+  };
+  
+  console.log(`🔄 Email alert status untuk ${desa} telah direset`);
   
   res.json({
-    current: {
-      desa1: {
-        sensorDistance: parseFloat(latestData.desa1.distance),
-        waterLevel: convertSensorToWaterLevel(latestData.desa1.distance),
-        status: getWaterStatus(latestData.desa1.distance)
-      },
-      desa2: {
-        sensorDistance: parseFloat(latestData.desa2.distance),
-        waterLevel: convertSensorToWaterLevel(latestData.desa2.distance),
-        status: getWaterStatus(latestData.desa2.distance)
-      }
-    },
-    testCalculations: calculations,
-    explanation: {
-      logic: "Ketinggian air = 17cm - jarak sensor",
-      examples: [
-        "Sensor baca 17cm (tidak ada air) → ketinggian air = 0cm",
-        "Sensor baca 10cm → ketinggian air = 7cm", 
-        "Sensor baca 5cm → ketinggian air = 12cm (BAHAYA!)",
-        "Sensor baca 0cm → ketinggian air = 17cm (MELUAP!)"
-      ]
-    }
+    success: true,
+    message: `Email alert status untuk ${desa} berhasil direset`,
+    newStatus: emailAlertStatus[desa]
   });
 });
 
-// API untuk debug rain status mapping
-app.get('/debug/rain', (req, res) => {
-  res.json({
-    desa1: {
-      current: latestData.desa1.rainStatus,
-      lastUpdate: latestData.desa1.lastUpdate
-    },
-    desa2: {
-      current: latestData.desa2.rainStatus,
-      lastUpdate: latestData.desa2.lastUpdate
-    },
-    mapping: {
-      'heavy rain': mapRainStatus('heavy rain'),
-      'no rain': mapRainStatus('no rain'),
-      'rain': mapRainStatus('rain'),
-      'dry': mapRainStatus('dry'),
-      'hujan': mapRainStatus('hujan'),
-      'tidak hujan': mapRainStatus('tidak hujan')
-    }
-  });
-});
-
-// Serve static files (HTML)
+// API endpoint lainnya...
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.redirect('/login');
 });
 
-// fetch desa1
 app.get('/desa1/data', (req, res) => {
   const desa = latestData.desa1;
   res.json({
@@ -349,8 +538,6 @@ app.get('/desa1/data', (req, res) => {
   });
 });
 
-
-// fetch desa2
 app.get('/desa2/data', (req, res) => {
   const desa = latestData.desa2;
   res.json({
@@ -362,7 +549,6 @@ app.get('/desa2/data', (req, res) => {
   });
 });
 
-//fetch rain-status
 app.get('/rain-status', (req, res) => {
   res.json({
     desa1: latestData.desa1.rainStatus,
@@ -370,7 +556,6 @@ app.get('/rain-status', (req, res) => {
   });
 });
 
-//fetch chart-data 
 app.get('/chart-data', (req, res) => {
   res.json({
     desa1: {
@@ -382,8 +567,6 @@ app.get('/chart-data', (req, res) => {
   });
 });
 
-
-
 // Error handling
 app.use((err, req, res, next) => {
   console.error('Server Error:', err);
@@ -393,14 +576,14 @@ app.use((err, req, res, next) => {
 // Jalankan server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    //Test koneksi ke PostgreSQL
-       pool.connect((err, client, release) => {
-      if (err) {
-        return console.error('❌ Gagal koneksi ke database:', err.stack);
-      }
-      console.log('✅ Berhasil koneksi ke PostgreSQL');
-      release(); // kembalikan client ke pool
-      });
+  pool.connect((err, client, release) => {
+    if (err) {
+      return console.error('❌ Gagal koneksi ke database:', err.stack);
+    }
+    console.log('✅ Berhasil koneksi ke PostgreSQL');
+    release();
+  });
+  
   console.log(`🚀 Server berjalan di http://localhost:${PORT}`);
   console.log(`📡 Listening to topics:`);
   console.log(`   - mohamadkharizalfirdaus@gmail.com/desa1/hcsr04`);
@@ -411,7 +594,12 @@ app.listen(PORT, () => {
   console.log(`   - Jarak sensor 17cm = tidak ada air (ketinggian 0cm)`);
   console.log(`   - Jarak sensor < 10cm = BAHAYA (air meluap)`);
   console.log(`   - Jarak sensor < 13cm = PERINGATAN (air naik)`);
-  console.log(`🌧️ Rain status mapping: "heavy rain"/"rain" -> "hujan", "no rain"/"dry" -> "tidak hujan"`);
+  console.log(`🌧️ Rain status mapping: "heavy rain"/"hujan lebat" -> "heavy"`);
+  console.log(`📧 Email Alert System:`);
+  console.log(`   - Recipient: ${emailConfig.recipient}`);
+  console.log(`   - Trigger: Air meluap (< 10cm) + Hujan lebat`);
+  console.log(`   - Cooldown: ${EMAIL_COOLDOWN_PERIOD / 1000 / 60} menit`);
+  console.log(`   - Minimal durasi bahaya sebelum kirim email: ${MIN_DANGER_DURATION / 1000 / 60} menit`);
 });
 
 // Graceful shutdown
